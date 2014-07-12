@@ -1,0 +1,141 @@
+import /init.recovery.${ro.hardware}.rc
+
+on early-init
+    start ueventd
+
+on init
+    export PATH /sbin
+    export PATH /sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin
+    export ANDROID_ROOT /system
+    export ANDROID_DATA /data
+    export EXTERNAL_STORAGE /external_sd
+
+    symlink /system/etc /etc
+
+    symlink /system/vendor /vendor
+    mkdir /sdcard
+    mkdir /external_sd
+    mkdir /system
+    mkdir /data
+    mkdir /cust
+    chown system system /dev/cpuctl
+    chown system system /dev/cpuctl/tasks
+    mkdir /cache
+    mkdir /boot
+    mkdir /recovery
+
+    symlink /system/etc /etc
+
+    write /sys/module/block2mtd/parameters/block2mtd /dev/block/mmcblk0p3
+    mount /tmp /tmp tmpfs
+    # change nve device visit permission
+    wait /dev/nve0
+    chmod 0777 /dev/nve0
+    chmod 0664 /sys/module/usbcore/parameters/autosuspend
+    chown radio radio /sys/module/usbcore/parameters/autosuspend
+    write /sys/module/usbcore/parameters/autosuspend 2000
+
+
+    chown root shell /tmp
+    chmod 0775 /tmp
+
+    /dev/ttyUSB1   0777   root  root
+    /dev/ttyUSB0   0777   root  root
+    /dev/ttyACM0   0777   root  root
+    /dev/ttyACM1   0777   root  root
+    /dev/ttyACM2   0777   root  root
+    /dev/ttyACM3   0777   root  root    
+
+on fs
+
+     write /sys/devices/system/cpu/cpufreq/k3hotplug/cpu_lock 2
+#bq2416x_charger
+     chmod 0660 /sys/bus/i2c/devices/1-006b/enable_charger
+     chown system system /sys/bus/i2c/devices/1-006b/enable_charger
+     chown system system /sys/class/leds/lcd-backlight0/brightness
+     chmod 0660 /sys/class/leds/lcd-backlight0/brightness
+
+on post-fs-data
+    # We chown/chmod /data again so because mount is run as root + defaults
+	chown system system /data
+	chmod 0771 /data
+
+	# Create dump dir and collect dumps.
+	# Do this before we mount cache so eventually we can use cache for
+	# storing dumps on platforms which do not have a dedicated dump partition.
+	mkdir /data/dontpanic 0750 root log
+
+	# Collect apanic data, free resources and re-arm trigger
+	copy /proc/apanic_console /data/dontpanic/apanic_console
+	chown root log /data/dontpanic/apanic_console
+	chmod 0640 /data/dontpanic/apanic_console
+
+	copy /proc/apanic_threads /data/dontpanic/apanic_threads
+	chown root log /data/dontpanic/apanic_threads
+	chmod 0640 /data/dontpanic/apanic_threads
+
+	write /proc/apanic_console 1
+	 
+on boot
+
+    ifup lo
+    hostname localhost
+    domainname localdomain
+
+    write /sys/devices/system/cpu/cpu1/online 0
+    write /sys/devices/platform/ipps-v2.0/mcu "I 64"
+    write /sys/devices/platform/ipps-v2.0/mcu "I 112"
+    write /sys/devices/platform/ipps-v2.0/mcu "I 17"
+    write /sys/devices/platform/ipps-v2.0/mcu "I 49"
+    
+    class_start default
+
+on property:sys.powerctl=*
+   powerctl ${sys.powerctl}
+
+#add by w00187765
+	mkdir /data/dumplog
+	chmod 777 /data/dumplog
+   
+service ueventd /sbin/ueventd
+    critical
+
+service check /sbin/check
+    oneshot
+
+service charger charger
+    disabled
+
+service recovery /sbin/recovery
+    disabled
+
+service adbd /sbin/adbd recovery
+    disabled	 
+
+on property:ro.debuggable=1
+    write /sys/class/android_usb/android0/enable 0
+    write /sys/class/android_usb/android0/idVendor 18D1
+    write /sys/class/android_usb/android0/idProduct D001
+    write /sys/class/android_usb/android0/functions mass_storage,adb
+    write /sys/class/android_usb/android0/iManufacturer ${ro.product.manufacturer}
+    write /sys/class/android_usb/android0/iProduct ${ro.product.model}
+    write /sys/class/android_usb/android0/iSerial ${ro.serialno}
+    start adbd
+
+# Restart adbd so it can run as root
+on property:service.adb.root=1
+    write /sys/class/android_usb/android0/enable 0
+    restart adbd
+    write /sys/class/android_usb/android0/enable 1
+
+# Always start adbd on userdebug and eng builds
+on property:ro.debuggable=1
+    #write /sys/class/android_usb/android0/enable 1
+    #start adbd
+    setprop service.adb.root 1
+
+# Restart adbd so it can run as root
+on property:service.adb.root=1
+    write /sys/class/android_usb/android0/enable 0
+    restart adbd
+    write /sys/class/android_usb/android0/enable 1
